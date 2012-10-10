@@ -1,0 +1,30 @@
+#!/usr/bin/ksh
+#
+# Sample 10g CRS resource status query script
+#
+# Description:
+#    - Returns formatted version of crs_stat -t, in tabular
+#      format, with the complete rsc names and filtering keywords
+#   - The argument, $RSC_KEY, is optional and if passed to the script, will
+#     limit the output to HA resources whose names match $RSC_KEY.
+# Requirements:
+#   - $ORA_CRS_HOME should be set in your environment
+
+RSC_KEY=$1
+QSTAT=-u
+AWK=/usr/bin/awk    # if not available use /usr/xpg4/bin/awk
+
+# Table header:echo ""
+$AWK \
+  'BEGIN {printf "%-50s %-15s %-18s\n", "HA Resource", "Target", "State";
+          printf "%-50s %-15s %-18s\n", "-----------", "------", "-----";}'
+
+# Table body:
+crs_stat.bin $QSTAT | $AWK \
+ 'BEGIN { FS="="; state = 0; }
+  $1~/NAME/ && $2~/'$RSC_KEY'/ {appname = $2; state=1};
+  state == 0 {next;}
+  $1~/TARGET/ && state == 1 {apptarget = $2; state=2;}
+  $1~/STATE/ && state == 2 {appstate = $2; state=3;}
+  state == 3 {printf "%-50s %-15s %-18s\n", appname, apptarget, appstate; state=0;}'
+

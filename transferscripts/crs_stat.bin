@@ -1,0 +1,65 @@
+#!/bin/sh
+#
+# Copyright (c) 2001, 2007, Oracle. All rights reserved.  
+
+ORA_CRS_HOME=/u01/app/crs
+ORACLE_HOME=$ORA_CRS_HOME
+export ORA_CRS_HOME ORACLE_HOME 
+
+case `/bin/uname` in
+Linux) 
+       LD_LIBRARY_PATH=$ORA_CRS_HOME/lib
+       export LD_LIBRARY_PATH 
+
+       # forcibly eliminate LD_ASSUME_KERNEL to ensure NPTL where available
+       LD_ASSUME_KERNEL=
+       export LD_ASSUME_KERNEL
+       ;;
+HP-UX) MACH_HARDWARE=`/bin/uname -m`
+       if [ "$MACH_HARDWARE" = "ia64" ]; then
+          SO_EXT=so
+          NMAPIDIR_64=/opt/nmapi/nmapi2/lib/hpux64
+       else
+          SO_EXT=sl
+          NMAPIDIR_64=/opt/nmapi/nmapi2/lib/pa20_64
+       fi 
+       LD_LIBRARY_PATH=$ORA_CRS_HOME/lib:$NMAPIDIR_64:/usr/lib:$LD_LIBRARY_PATH
+       export LD_LIBRARY_PATH
+       ;;
+SunOS) MACH_HARDWARE=`/bin/uname -i`
+       ARCH=`/usr/bin/isainfo -b`
+       LD_LIBRARY_PATH=$ORA_CRS_HOME/lib:/opt/ORCLcluster/lib:/usr/lib:/usr/ucblib:
+       LD_LIBRARY_PATH_64=$ORA_CRS_HOME/lib:/opt/ORCLcluster/lib:/usr/lib:/usr/ucblib:
+       if [ "${MACH_HARDWARE}${ARCH}" = "i86pc64" ]; then
+          LD_LIBRARY_PATH=$ORA_CRS_HOME/lib:/opt/ORCLcluster/lib:/usr/lib/amd64:/usr/ucblib/amd64:
+          LD_LIBRARY_PATH_64=$ORA_CRS_HOME/lib:/opt/ORCLcluster/lib:/usr/lib/amd64:/usr/ucblib/amd64:
+       fi
+       export LD_LIBRARY_PATH
+       export LD_LIBRARY_PATH_64
+       ;;
+
+AIX)   ORACLUSTER_LIB=/opt/ORCLcluster/lib 
+       LIBPATH=$ORA_CRS_HOME/lib:$ORACLUSTER_LIB:/usr/lib:
+       export LIBPATH
+       AIXTHREAD_SCOPE=S
+       export AIXTHREAD_SCOPE
+       ;;
+OSF1)  LD_LIBRARY_PATH=$ORA_CRS_HOME/lib:/shlib:/usr/lib
+       export LD_LIBRARY_PATH
+       ;;
+*)     /bin/echo "ERROR: Unknown Operating System"
+       exit -1
+       ;;
+esac
+
+case $0 in
+*.bin) 
+    ORASYM=$ORA_CRS_HOME/bin/`basename $0 .bin`
+    ;;
+*)     
+    ORASYM=$0.bin
+    ;;
+esac
+
+export ORASYM
+exec $ORASYM "$@"

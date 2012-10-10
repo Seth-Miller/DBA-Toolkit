@@ -1,0 +1,140 @@
+#!/bin/bash
+
+CHINSTDEF=10
+CHWAITDEF=120
+
+CRSHOME=/u01/app/crs
+CRSSTATBIN=$CRSHOME/bin/crs_stat
+SRVCTLBIN=$CRSHOME/bin/srvctl
+AWK=awk
+
+function CRSSTAT
+{
+	ORA_CRS_HOME=$CRSHOME
+	LD_LIBRARY_PATH=$CRSHOME/lib
+	RSC_KEY=$1
+	QSTAT=-u
+
+	$CRSSTATBIN $QSTAT | $AWK \
+	 'BEGIN { FS="="; state = 0; }
+	  $1~/NAME/ && $2~/'$RSC_KEY'/ {appname = $2; state=1}
+	  state == 0 {next;}
+	  $1~/TARGET/ && state == 1 {apptarget = $2; state=2;}
+	  $1~/STATE/ && state == 2 {appstate = $2; state=3;}
+	  state == 3 {split(appname, appvar, "."); print appvar[3]; state=0;}'
+}
+
+function SRVCTL
+{
+	ORA_CRS_HOME=$CRSHOME
+	LD_LIBRARY_PATH=$CRSHOME/lib
+	$SRVCTLBIN $*
+}
+
+
+
+ERRTEXT="Usage: $(basename $0) <stop|start|status> <node number> <server> [chunk instances($CHINSTDEF)] [chunk wait time($CHWAITDEF)]"
+
+WHAT=$1
+NODE=$2
+SERVER=$3
+CHINST=${4:-$CHINSTDEF}
+CHWAIT=${5:-$CHWAITDEF}
+
+WHATOPS=(start stop status)
+NODEOPS=({1..9})
+
+function CALLERR {
+        [ -z "$1" ] || echo "$1"
+        echo $ERRTEXT
+        exit 1
+}
+
+function DEBUG {
+        if [ -n "$DEBUG" ]; then
+                echo "$1"
+        fi
+}
+
+function COMPOPS {
+        GOOD=1
+        DEBUG "$2"
+        eval "declare -a ARR="${2#*=};
+        DEBUG "COMPOPS options: ${ARR[*]}"
+        ONE=$1; DEBUG "ONE=$ONE"
+        TWO=${ARR[*]}; DEBUG "TWO=${ARR[*]}"
+        for i in ${TWO[*]}; do
+                [ "$ONE" = "$i" ] && GOOD=0
+                DEBUG "Comp: $ONE=$i Good: $GOOD"
+        done
+        return $GOOD
+}
+
+function SRVCTLLOOP_INST {
+	count=$CHINST
+        for i in $INST; do
+                echo "srvctl $WHAT instance -d ${i:0:((${#i}-1))} -i $i"
+                SRVCTL $WHAT instance -d ${i:0:((${#i}-1))} -i $i &
+        	let count-- && [ $count -eq 0 ] && echo "Waiting $CHWAIT seconds" && sleep $CHWAIT && count=$CHINST
+        done
+}
+
+function SRVCTLLOOP_OTHER {
+	echo "srvctl $WHAT nodeapps -n $SERVER"
+	SRVCTL $WHAT nodeapps -n $SERVER
+	echo "srvctl $WHAT asm -n $SERVER"
+	SRVCTL $WHAT asm -n $SERVER
+}
+
+function SRVCTLLOOP_STAT {
+        for i in $INST; do
+                SRVCTL $WHAT instance -d ${i:0:((${#i}-1))} -i $i
+        done
+	SRVCTL $WHAT asm -n $SERVER
+	SRVCTL $WHAT nodeapps -n $SERVER
+}
+
+function MAKESURE {
+        echo
+        echo "##################################################################################"
+        echo -e "$*"
+        echo "##################################################################################"
+        read VAR
+        case $VAR in
+                y|Y)
+                ;;
+                *) exit 0
+                ;;
+        esac
+}
+
+if [ $# -eq 0 ]; then
+        CALLERR
+fi
+
+DEBUG "WHAT=$WHAT"
+DEBUG "NODE=$NODE"
+
+[ ! -n "$WHAT" -o ! -n "$NODE" ] && CALLERR
+COMPOPS $WHAT "$( declare -p WHATOPS )" || CALLERR "Error: Supply a valid action"
+COMPOPS $NODE "$( declare -p NODEOPS )" || CALLERR "Error: Supply a valid node number"
+
+INST=$( CRSSTAT $NODE.inst )
+DEBUG "$INST"
+
+[ "$WHAT" = "status" ] || MAKESURE "Are you sure you want to $WHAT all of the instances on Node ${NODE}? [n]"
+
+if [ "$WHAT" = "stop" ]; then
+	SRVCTLLOOP_INST
+        echo
+        echo "##################################################################################"
+	echo -e "Make certain all of the instances are down on Node ${NODE} before proceeding further"
+        echo "##################################################################################"
+	read
+	SRVCTLLOOP_OTHER
+elif [ "$WHAT" = "start" ]; then
+	SRVCTLLOOP_OTHER
+	SRVCTLLOOP_INST
+elif [ "$WHAT" = "status" ]; then
+	SRVCTLLOOP_STAT
+fi
